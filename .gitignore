@@ -1,0 +1,16 @@
+# PlatformIO 编译产物
+.pio/
+.pioenvs/
+.piolibdeps/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# 固件输出
+*.bin
+*.hex
+*.elf
+*.map

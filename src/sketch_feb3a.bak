@@ -1,0 +1,212 @@
+/*********************************************************************
+ This is the original Arduino BLE firmware (Bend Labs sensor reader)
+ archived from 假肢机械臂/03_嵌入式代码/原版机械臂_Arduino/sketch_feb3a.ino
+
+ PlatformIO project entry point: see src/main.cpp
+ This file is kept as reference backup.
+*********************************************************************/
+
+#include <bluefruit.h>
+#include <Servo.h>
+
+Servo myservo;
+int pos = 0;
+
+BLEClientService        angms(0x1820);
+BLEClientCharacteristic angmc(0x2a70);
+
+volatile bool newData = false;
+static float sample[] = {0.0f, 0.0f};
+
+const char one_axis_model[] = "ADS_ONE_AXIS";
+const char two_axis_model[] = "ADS_TWO_AXIS";
+
+typedef enum {
+  ADS_ONE_AXIS = 0,
+  ADS_TWO_AXIS,
+  ADS_UNKNOWN
+} ads_type_t;
+
+ads_type_t adsType = ADS_UNKNOWN;
+BLEClientDis bledis;
+
+void ams_notify_callback(BLEClientCharacteristic* chr, uint8_t* data, uint16_t len);
+void signal_filter(float * sample);
+void deadzone_filter(float * sample);
+void parse_calibration(char key);
+void scan_callback(ble_gap_evt_adv_report_t* report);
+void connect_callback(uint16_t conn_handle);
+void disconnect_callback(uint16_t conn_handle, uint8_t reason);
+
+void setup()
+{
+  myservo.attach(A2);
+  Serial.begin(115200);
+  while ( !Serial ) delay(10);
+  Serial.println("Bluefruit52 Central ADS Eval Kit Example");
+  Bluefruit.begin(0, 1);
+  Bluefruit.setName("Bluefruit52 Central");
+  angms.begin();
+  angmc.setNotifyCallback(ams_notify_callback);
+  angmc.begin();
+  bledis.begin();
+  Bluefruit.setConnLedInterval(250);
+  Bluefruit.Central.setDisconnectCallback(disconnect_callback);
+  Bluefruit.Central.setConnectCallback(connect_callback);
+  Bluefruit.Scanner.setRxCallback(scan_callback);
+  Bluefruit.Scanner.restartOnDisconnect(true);
+  Bluefruit.Scanner.setInterval(160, 80);
+  Bluefruit.Scanner.filterUuid(angms.uuid);
+  Bluefruit.Scanner.useActiveScan(false);
+  Bluefruit.Scanner.start(0);
+}
+
+void loop()
+{
+  if(newData)
+  {
+    char s[30];
+    int ss;
+    int ss2;
+    sprintf(s, "%0.0f", sample[0]);
+    ss=int(sample[0]);
+    ss2=(int)((ss+250)/250*90);
+    myservo.write(ss2);
+    delay(10);
+    Serial.print(ss);
+    Serial.print("\r\n");
+    newData = false;
+  }
+  if(Serial.available())
+  {
+    char key = Serial.read();
+    parse_calibration(key);
+  }
+}
+
+void scan_callback(ble_gap_evt_adv_report_t* report)
+{
+  Bluefruit.Central.connect(report);
+}
+
+void connect_callback(uint16_t conn_handle)
+{
+  Serial.println("Connected");
+  if ( !angms.discover(conn_handle) )
+  {
+    Serial.println("Found NONE");
+    Bluefruit.disconnect(conn_handle);
+    return;
+  }
+  Serial.println("Found it");
+  if ( !angmc.discover() )
+  {
+    Serial.println("not found !!!");
+    Bluefruit.disconnect(conn_handle);
+    return;
+  }
+  Serial.println("Found it");
+  if( bledis.discover(conn_handle) )
+  {
+    char s[30];
+    uint16_t len = bledis.getModel(s, 30);
+    s[12] = '\0';
+    if(strcmp(s, one_axis_model) == 0)
+    {
+      adsType = ADS_ONE_AXIS;
+      uint8_t enableStretch[] = {0x01, 0x80};
+      angmc.write(enableStretch, 2);
+    }
+    else if(strcmp(s, two_axis_model) == 0)
+    {
+      adsType = ADS_TWO_AXIS;
+    }
+    else
+    {
+      adsType = ADS_UNKNOWN;
+    }
+  }
+  if ( angmc.enableNotify() )
+  {
+    Serial.println("Ready to receive AMS Measurement value");
+  }
+}
+
+void disconnect_callback(uint16_t conn_handle, uint8_t reason)
+{
+  (void) conn_handle;
+  (void) reason;
+  Serial.print("Disconnected, reason = 0x"); Serial.println(reason, HEX);
+}
+
+void ams_notify_callback(BLEClientCharacteristic* chr, uint8_t* data, uint16_t len)
+{
+  if(len == 8)
+  {
+    memcpy(&sample[0], &data[0], sizeof(float));
+    memcpy(&sample[1], &data[4], sizeof(float));
+    if(adsType == ADS_TWO_AXIS)
+    {
+      signal_filter(sample);
+    }
+    deadzone_filter(sample);
+    newData = true;
+  }
+}
+
+void signal_filter(float * sample)
+{
+    static float filter_samples[2][6];
+    for(uint8_t i=0; i<2; i++)
+    {
+      filter_samples[i][5] = filter_samples[i][4];
+      filter_samples[i][4] = filter_samples[i][3];
+      filter_samples[i][3] = (float)sample[i];
+      filter_samples[i][2] = filter_samples[i][1];
+      filter_samples[i][1] = filter_samples[i][0];
+
+      filter_samples[i][0] = filter_samples[i][1]*(0.36952737735124147f) - 0.19581571265583314f*filter_samples[i][2] + \
+         0.20657208382614792f*(filter_samples[i][3] + 2*filter_samples[i][4] + filter_samples[i][5]);
+
+      sample[i] = filter_samples[i][0];
+    }
+}
+
+void deadzone_filter(float * sample)
+{
+  static float prev_sample[2];
+  float dead_zone = 0.5f;
+  for(uint8_t i=0; i<2; i++)
+  {
+    if(fabs(sample[i]-prev_sample[i]) > dead_zone)
+      prev_sample[i] = sample[i];
+    else
+      sample[i] = prev_sample[i];
+  }
+}
+
+void parse_calibration(char key)
+{
+    uint8_t ble_msg;
+    if(adsType == ADS_ONE_AXIS)
+    {
+      switch(key)
+      {
+        case '0': ble_msg = 0; angmc.write(&ble_msg, 1); break;
+        case '9': ble_msg = 1; angmc.write(&ble_msg, 1); break;
+        case 'b': ble_msg = 4; angmc.write(&ble_msg, 1); break;
+        case 'e': ble_msg = 5; angmc.write(&ble_msg, 1); break;
+        case 'c': ble_msg = 3; angmc.write(&ble_msg, 1); break;
+      }
+    }
+    else if(adsType == ADS_TWO_AXIS)
+    {
+      switch(key)
+      {
+        case '0': ble_msg = 0; angmc.write(&ble_msg, 1); break;
+        case 'f': ble_msg = 1; angmc.write(&ble_msg, 1); break;
+        case 'p': ble_msg = 2; angmc.write(&ble_msg, 1); break;
+        case 'c': ble_msg = 3; angmc.write(&ble_msg, 1); break;
+      }
+    }
+}
