@@ -75,11 +75,9 @@ python -m platformio device monitor --project-dir=d:\Dev\arm-ble --baud 115200 -
 - 板子 BLE 通信 ✅
 - 手柄扫描 + 连接 + Notify 数据接收 ✅
 
-## 相关项目
+## 相关文档
 
-| 项目 | 链接 |
+| 文档 | 路径 |
 |------|------|
-| 上位机 | [arm-ble-gui](https://github.com/suancaiyu10108899/arm-ble-gui) |
-| 文档仓库 | [prosthetic-robotic-arm](https://github.com/suancaiyu10108899/prosthetic-robotic-arm) |
 | 交接文档 | `docs/交接文档_20260613.md` |
-| 调试全记录 | 文档仓库 `07_学习笔记/嵌入式开发/LOOKBON手柄BLE调试全记录_20260613.md` |
+| 开发日志 | `docs/devlog/2026-06-13_手柄调试图鉴.md` |

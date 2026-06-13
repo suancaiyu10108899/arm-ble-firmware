@@ -19,7 +19,7 @@ struct ParsedInput {
 enum class HandleType {
     None,
     CodexPad_C10,   ///< Service 0xFFA0, Char 0xFFA1 Notify, 8字节二进制帧
-    Lookbon_VR,     ///< Service AE30, Char AE02 Notify, 2字节 ASCII 字符串
+    Lookbon_VR,     ///< Service AE30, Char AE02 Notify, 单字节编码 (高nibble=事件, 低nibble=按键)
 };
 
 /**
@@ -30,8 +30,8 @@ enum class HandleType {
 ParsedInput parseCodexPad(const uint8_t* data, size_t len);
 
 /**
- * @brief 解析 VR LOOKBON 手柄的 2 字节 Notify 数据
- * @param data 原始字节数组（必须 2 字节）
+ * @brief 解析 VR LOOKBON 手柄的单字节 Notify 数据
+ * @param data 原始字节数组（1 字节: 高nibble=事件类型, 低nibble=按键/方向编号）
  * @return 标准化输入
  */
 ParsedInput parseLookbon(const uint8_t* data, size_t len);
