@@ -138,7 +138,8 @@ static void onDisconnect(uint16_t conn, uint8_t reason)
 void setup()
 {
     Serial.begin(115200);
-    while (!Serial) delay(10);
+    unsigned long usbTimeout = millis() + 3000;
+    while (!Serial && millis() < usbTimeout) delay(10);
     Serial.println("\n=== ARM-BLE v2.7 (UART TX on A2) ===");
 
     // ── UART: TX = A2(P0.30), RX = D1(P0.24) ──
