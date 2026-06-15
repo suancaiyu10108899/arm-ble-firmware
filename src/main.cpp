@@ -8,11 +8,12 @@
 #include <bluefruit.h>
 #include <handle_parser.h>
 
-static volatile bool  g_newData      = false;
+// NOTE: g_input is written in BLE callback, read in loop().
+// Safe in nRF52 SoftDevice single-thread model; add volatile if porting to RTOS.
 static ParsedInput    g_input;
+static volatile bool  g_newData      = false;
 
 static uint16_t       g_connHandle   = BLE_CONN_HANDLE_INVALID;
-static uint16_t       g_notifyHandle = 0;
 static volatile bool  g_needRescan   = false;
 static bool           g_scanPaused   = false;
 
@@ -61,7 +62,7 @@ static void writeOneCCCD(uint16_t conn, uint16_t charHandle)
     ble_gattc_write_params_t param;
     memset(&param, 0, sizeof(param));
     param.write_op = BLE_GATT_OP_WRITE_CMD;
-    param.flags    = BLE_GATT_EXEC_WRITE_FLAG_PREPARED_WRITE;
+    param.flags    = 0;  // WRITE_CMD ignores flags
     param.handle   = cccdHandle;
     param.offset   = 0;
     param.len      = 2;
@@ -173,7 +174,6 @@ void loop()
     if (g_cccdPhase >= 1 && g_cccdPhase <= 3 && (now - g_cccdNextTime > 2000)) {
         g_cccdNextTime = now;
         writeOneCCCD(g_connHandle, kCCCDHandles[g_cccdPhase - 1]);
-        g_notifyHandle = kCCCDHandles[g_cccdPhase - 1];
         g_cccdPhase++;
         if (g_cccdPhase > 3) Serial.println("[OK] subscribed");
     }

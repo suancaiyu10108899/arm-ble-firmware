@@ -12,7 +12,7 @@
 struct ParsedInput {
     uint8_t  joystickX = 128;   ///< 摇杆 X 轴 (0=左, 128=中位, 255=右)
     uint8_t  joystickY = 128;   ///< 摇杆 Y 轴 (0=上, 128=中位, 255=下)
-    uint32_t buttons   = 0;     ///< 按键位掩码 (bit0=上, bit1=下, bit2=左, bit3=右, bit6=A)
+    uint32_t buttons   = 0;     ///< 按键位掩码 (位定义因手柄类型而异)
 };
 
 /// 手柄类型
