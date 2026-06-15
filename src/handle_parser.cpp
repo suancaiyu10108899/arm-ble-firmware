@@ -60,7 +60,8 @@ ParsedInput parseLookbon(const uint8_t* data, size_t len)
     } else if (event == 0xA || event == 0xB) {
         // 按键按下或长按
         // key: 1=@, 2=A, 3=B, 4=C, 5=D, 6=R, 7=L
-        // lookupMap 索引 0 和 1 填 16 (bit16=@), 因为 key 从 1 开始永不访问索引 0
+        // lookupMap: key → bit position in ParsedInput::buttons
+        // key 1=@→bit16, 2=A→bit6, 3=B→bit7, 4=C→bit4, 5=D→bit5, 6=R→bit11, 7=L→bit10
         static const uint8_t lookupMap[] = {16, 16, 6, 7, 4, 5, 11, 10};
         if (key >= 1 && key <= 7) {
             in.buttons = (uint32_t)1 << lookupMap[key];

@@ -1,8 +1,20 @@
 /**
- * ARM-BLE v2.7 — UART TX on A2 (P0.30)
+ * ARM-BLE v2.8 — UART TX on A2 (P0.30), 0xAA/0xBB framed
+ *
+ * 状态机速览：
+ *   扫描(10s窗口) → 扫到LOOKBON → CONNECTED
+ *   CONNECTED → CCCD Phase1(2s后) → Phase2(4s后) → Phase3(6s后) → RECEIVING
+ *   RECEIVING → 每帧手柄数据 → sendUartFrame (A2 TX, 3字节 0xAA/dir/0xBB)
+ *   断连 → DISCONNECTED → 回到扫描
+ *
+ * 全局变量：
+ *   g_scanPaused: 连接后停扫描
+ *   g_cccdPhase: 1-3=正在写CCCD, >3=已完成
+ *   g_newData: BLE回调写入, loop消费
  *
  * v2.6: BLE扫描/GAP/CCCD/Notify/解析 全通
- * v2.7: Serial1 UART TX mapped to A2(P0.30) via Serial1.setPins()
+ * v2.7: Serial1 UART TX mapped to A2(P0.30) via Serial1.setPins() + 电池供电修复
+ * v2.8: UART帧改为 0xAA 方向码 0xBB (学长协议), 按键映射 A→0x01 B→0x02 C→0x03 D→0x04
  */
 
 #include <bluefruit.h>
@@ -24,6 +36,9 @@ static bool           g_restarting   = false;
 
 static uint8_t        g_cccdPhase    = 0;
 static unsigned long  g_cccdNextTime = 0;
+
+// CCCD Handle 7/67/131: LOOKBON AE30 service 中 AE02 characteristic 的三个实例
+// 来源: Python bleak 库 reverse engineering (vr-ble-python-pc/ble_python.py)
 static const uint16_t kCCCDHandles[] = {7, 67, 131};
 
 static const unsigned long kUartBaud  = 115200;
@@ -76,20 +91,26 @@ static void writeOneCCCD(uint16_t conn, uint16_t charHandle)
 
 static void sendUartFrame(const ParsedInput& in)
 {
-    uint8_t frame[4];
-    frame[0] = in.joystickX;
-    frame[1] = in.joystickY;
-    frame[2] = in.buttons & 0xFF;
-    frame[3] = (in.buttons >> 8) & 0xFF;
+    // v2.8: 学长协议 — 3字节帧 0xAA | 方向码 | 0xBB
+    // 方向码: 0x01=A键, 0x02=B键, 0x03=C键, 0x04=D键
+    // 两个舵机: A/C→舵机1正反转, B/D→舵机2正反转 (具体语义由学长定义)
+    uint8_t dir = 0;
+    if (in.buttons & 0x40)      dir = 0x01;  // A键 (bit6)
+    else if (in.buttons & 0x80) dir = 0x02;  // B键 (bit7)
+    else if (in.buttons & 0x10) dir = 0x03;  // C键 (bit4)
+    else if (in.buttons & 0x20) dir = 0x04;  // D键 (bit5)
 
-    size_t sent = Serial1.write(frame, 4);
-    Serial.print("[UART] sent "); Serial.print(sent);
-    Serial.print(" bytes: ");
-    for (size_t i = 0; i < sent; i++) {
-        if (frame[i] < 0x10) Serial.print('0');
-        Serial.print(frame[i], HEX); Serial.print(' ');
+    if (dir) {
+        uint8_t frame[3] = {0xAA, dir, 0xBB};
+        size_t sent = Serial1.write(frame, 3);
+        Serial.print("[UART] sent "); Serial.print(sent);
+        Serial.print(" bytes: ");
+        for (size_t i = 0; i < sent; i++) {
+            if (frame[i] < 0x10) Serial.print('0');
+            Serial.print(frame[i], HEX); Serial.print(' ');
+        }
+        Serial.println();
     }
-    Serial.println();
 }
 
 static void onScan(ble_gap_evt_adv_report_t* report)
@@ -141,14 +162,14 @@ void setup()
     Serial.begin(115200);
     unsigned long usbTimeout = millis() + 3000;
     while (!Serial && millis() < usbTimeout) delay(10);
-    Serial.println("\n=== ARM-BLE v2.7 (UART TX on A2) ===");
+    Serial.println("\n=== ARM-BLE v2.8 (UART TX on A2, 0xAA/0xBB framed) ===");
 
     // ── UART: TX = A2(P0.30), RX = D1(P0.24) ──
     Serial1.setPins(PIN_SERIAL1_RX, A2);   // v2.7: TX 重映射到 A2
     Serial1.begin(kUartBaud);
     Serial.print("[UART] Serial1 @ "); Serial.print(kUartBaud);
     Serial.println(" baud (TX=A2=P0.30, RX=D1=P0.24)");
-    Serial.println("[UART] A2 -> GX12 -> ③号板 RX");
+    Serial.println("[UART] A2 -> GX12 -> ③号板 RX, 帧格式: 0xAA/dir/0xBB");
 
     // ── BLE ──
     Bluefruit.begin(1, 1);
@@ -164,7 +185,7 @@ void setup()
 
     g_lastLog     = millis();
     g_lastRestart = millis();
-    Serial.println("[OK] v2.7 ready");
+    Serial.println("[OK] v2.8 ready");
 }
 
 void loop()

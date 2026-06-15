@@ -3,13 +3,13 @@
 > 项目: 假肢机械臂 — Arduino 蓝牙板（板①）
 > 板子: Adafruit Feather nRF52840 Express
 > SDK: PlatformIO + Arduino framework
-> 固件版本: v2.7（2026-06-14）
+> 固件版本: v2.8（2026-06-15）
 
 ## 功能
 
 - **BLE Central** 扫描并连接 VR LOOKBON 手柄（MAC: `0D:CE:99:03:5D:D2`）
-- 接收手柄按键/摇杆 Notify 数据，解析为 `BTN/X/Y`
-- 通过 Serial1 UART TX（A2=P0.30, 115200 baud）发出 4 字节帧
+- 接收手柄按键 Notify 数据，解析为 `BTN/X/Y`
+- 通过 Serial1 UART TX（A2=P0.30, 115200 baud）发出 3 字节帧到③号板
 
 ## 快速开始
 
@@ -40,17 +40,15 @@ python -m platformio device monitor --project-dir=d:\Dev\arm-ble --baud 115200
 ## 预期运行效果
 
 ```
-=== ARM-BLE v2.7 (UART TX on A2) ===
+=== ARM-BLE v2.8 (UART TX on A2, 0xAA/0xBB framed) ===
 [UART] Serial1 @ 115200 baud (TX=A2=P0.30, RX=D1=P0.24)
-[UART] A2 -> GX12 -> ③号板 RX
-[OK] v2.7 ready
+[UART] A2 -> GX12 -> ③号板 RX, 帧格式: 0xAA/dir/0xBB
+[OK] v2.8 ready
 [FOUND] LOOKBON 0D:CE:99:03:5D:D2
 [CONNECT] conn=0
 [OK] subscribed
 [DATA] raw=0xA3 -> BTN=0x80 X=128 Y=128    ← 按键 B 单击
-[UART] sent 4 bytes: 80 80 80 00            ← UART 发出
-[DATA] raw=0xD1 -> BTN=0x0 X=128 Y=0        ← 摇杆向上
-[UART] sent 4 bytes: 80 00 00 00
+[UART] sent 3 bytes: AA 01 BB              ← A键→方向1
 [.] conn=YES                                 ← 心跳，连接保持
 ```
 
@@ -74,19 +72,32 @@ python -m platformio device monitor --project-dir=d:\Dev\arm-ble --baud 115200
 | `0xD0` | 摇杆中位 |
 | `0xD1`-`0xD8` | 摇杆 8 方向 |
 
-## UART 帧格式（v2.7）
+## UART 帧格式（v2.8 — 学长协议）
 
-| byte[0] | byte[1] | byte[2] | byte[3] |
-|---------|---------|---------|---------|
-| joystickX (0-255) | joystickY (0-255) | buttons 低 8 位 | buttons 高 8 位 |
+| byte[0] | byte[1] | byte[2] |
+|---------|---------|---------|
+| `0xAA` (帧头) | 方向码 | `0xBB` (帧尾) |
 
-> 帧格式暂定，待学长确认后调整。
+方向码：
+- `0x01` = A键 → 舵机1 正转
+- `0x02` = B键 → 舵机1 反转
+- `0x03` = C键 → 舵机2 正转
+- `0x04` = D键 → 舵机2 反转
+
+> 无按键时不发帧。引脚 A2(P0.30) → GX12 航空接头 → ③号板 RX。波特率 115200。
+
+## 硬件接线
+
+```
+A2 (P0.30) ──飞线──▶ GX12 公头 ──▶ ③号板 RX
+GND        ─────────▶ GX12 公头 ──▶ ③号板 GND
+```
 
 ## 文件说明
 
 | 文件 | 内容 |
 |------|------|
-| `src/main.cpp` | v2.7 固件 — 扫描/连接/CCCD/解析/UART TX |
+| `src/main.cpp` | v2.8 固件 — 扫描/连接/CCCD/解析/UART TX (0xAA帧) |
 | `src/handle_parser.h/cpp` | LOOKBON + CodexPad 协议解析器 |
 | `src/arm_ble.ino` | Arduino IDE 入口文件 |
 | `docs/devlog/` | 开发日志 |
@@ -98,7 +109,7 @@ python -m platformio device monitor --project-dir=d:\Dev\arm-ble --baud 115200
 - MAC: `D3:52:88:3A:06:27`（板子）/ `0D:CE:99:03:5D:D2`（手柄）
 - 板子 BLE 通信 ✅
 - 手柄扫描 + 连接 + Notify 数据接收 ✅
-- UART TX (A2, 115200) ✅
+- UART TX (A2, 115200, 0xAA帧) ✅ 编译通过，待接③号板实测
 - 电池供电自动启动 ✅
 
 ## 相关文档
