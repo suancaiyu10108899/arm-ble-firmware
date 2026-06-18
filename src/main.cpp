@@ -7,21 +7,16 @@
  *   RECEIVING → 每帧手柄数据 → sendUartFrame (A2 TX, 3字节 0xAA/dir/0xBB)
  *   断连 → DISCONNECTED → 回到扫描
  *
- * 全局变量：
- *   g_scanPaused: 连接后停扫描
- *   g_cccdPhase: 1-3=正在写CCCD, >3=已完成
- *   g_newData: BLE回调写入, loop消费
- *
  * v2.6: BLE扫描/GAP/CCCD/Notify/解析 全通
  * v2.7: Serial1 UART TX mapped to A2(P0.30) via Serial1.setPins() + 电池供电修复
- * v2.8: UART帧改为 0xAA 方向码 0xBB (学长协议), 按键映射 A→0x01 B→0x02 C→0x03 D→0x04
+ * v2.8: UART帧改为 0xAA 方向码 0xBB (学长协议) + 红灯闪确认发送
+ *
+ * ⚠️ UART TX 物理层待示波器验证 (详见 docs/debug-log/2026-06-17_UART_TX调试全记录.md)
  */
 
 #include <bluefruit.h>
 #include <handle_parser.h>
 
-// NOTE: g_input is written in BLE callback, read in loop().
-// Safe in nRF52 SoftDevice single-thread model; add volatile if porting to RTOS.
 static ParsedInput    g_input;
 static volatile bool  g_newData      = false;
 
@@ -37,11 +32,10 @@ static bool           g_restarting   = false;
 static uint8_t        g_cccdPhase    = 0;
 static unsigned long  g_cccdNextTime = 0;
 
-// CCCD Handle 7/67/131: LOOKBON AE30 service 中 AE02 characteristic 的三个实例
-// 来源: Python bleak 库 reverse engineering (vr-ble-python-pc/ble_python.py)
 static const uint16_t kCCCDHandles[] = {7, 67, 131};
 
-static const unsigned long kUartBaud  = 115200;
+static const unsigned long kUartBaud = 115200;
+static const uint8_t     kLedRed     = 3;   // 红色 LED = D3 = P1.15
 
 // ── BLE 事件回调 ──
 static void onBLEEvent(ble_evt_t* evt)
@@ -70,14 +64,13 @@ static void onBLEEvent(ble_evt_t* evt)
     Serial.print(" Y=");       Serial.println(g_input.joystickY);
 }
 
-static void writeOneCCCD(uint16_t conn, uint16_t charHandle)
+static void writeOneCCCD(uint16_t conn, uint16_t cccdHandle)
 {
-    uint16_t cccdHandle = charHandle + 1;
-    uint16_t cccdVal    = 0x0001;
+    uint16_t cccdVal = 0x0001;
     ble_gattc_write_params_t param;
     memset(&param, 0, sizeof(param));
     param.write_op = BLE_GATT_OP_WRITE_CMD;
-    param.flags    = 0;  // WRITE_CMD ignores flags
+    param.flags    = 0;
     param.handle   = cccdHandle;
     param.offset   = 0;
     param.len      = 2;
@@ -91,18 +84,18 @@ static void writeOneCCCD(uint16_t conn, uint16_t charHandle)
 
 static void sendUartFrame(const ParsedInput& in)
 {
-    // v2.8: 学长协议 — 3字节帧 0xAA | 方向码 | 0xBB
-    // 方向码: 0x01=A键, 0x02=B键, 0x03=C键, 0x04=D键
-    // 两个舵机: A/C→舵机1正反转, B/D→舵机2正反转 (具体语义由学长定义)
     uint8_t dir = 0;
-    if (in.buttons & 0x40)      dir = 0x01;  // A键 (bit6)
-    else if (in.buttons & 0x80) dir = 0x02;  // B键 (bit7)
-    else if (in.buttons & 0x10) dir = 0x03;  // C键 (bit4)
-    else if (in.buttons & 0x20) dir = 0x04;  // D键 (bit5)
+    if (in.buttons & 0x40)      dir = 0x01;
+    else if (in.buttons & 0x80) dir = 0x02;
+    else if (in.buttons & 0x10) dir = 0x03;
+    else if (in.buttons & 0x20) dir = 0x04;
 
     if (dir) {
         uint8_t frame[3] = {0xAA, dir, 0xBB};
         size_t sent = Serial1.write(frame, 3);
+        digitalWrite(kLedRed, HIGH);
+        delay(2);
+        digitalWrite(kLedRed, LOW);
         Serial.print("[UART] sent "); Serial.print(sent);
         Serial.print(" bytes: ");
         for (size_t i = 0; i < sent; i++) {
@@ -123,7 +116,6 @@ static void onScan(ble_gap_evt_adv_report_t* report)
     else if (Bluefruit.Scanner.parseReportByType(report, BLE_GAP_AD_TYPE_SHORT_LOCAL_NAME, buf, sizeof(buf)))
         name = String((char*)buf);
 
-    // Case-insensitive match
     name.toLowerCase();
     if (name.indexOf("lookbon") >= 0) {
         char mac[18];
@@ -164,12 +156,15 @@ void setup()
     while (!Serial && millis() < usbTimeout) delay(10);
     Serial.println("\n=== ARM-BLE v2.8 (UART TX on A2, 0xAA/0xBB framed) ===");
 
-    // ── UART: TX = A2(P0.30), RX = D1(P0.24) ──
-    Serial1.setPins(PIN_SERIAL1_RX, A2);   // v2.7: TX 重映射到 A2
+    pinMode(kLedRed, OUTPUT);
+    digitalWrite(kLedRed, LOW);
+
+    // ── UART: TX=A2(P0.30), RX=D1(P0.24) ──
+    Serial1.setPins(PIN_SERIAL1_RX, A2);
     Serial1.begin(kUartBaud);
     Serial.print("[UART] Serial1 @ "); Serial.print(kUartBaud);
     Serial.println(" baud (TX=A2=P0.30, RX=D1=P0.24)");
-    Serial.println("[UART] A2 -> GX12 -> ③号板 RX, 帧格式: 0xAA/dir/0xBB");
+    Serial.println("[UART] TX -> GX12 -> 3号板 RX, 帧格式: 0xAA/dir/0xBB");
 
     // ── BLE ──
     Bluefruit.begin(1, 1);
