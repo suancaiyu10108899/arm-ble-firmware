@@ -12,17 +12,31 @@
 - 通过 Serial1 UART TX（**D0=P0.25**, 115200 baud, 高驱动）发出 3 字节帧到③号板
 - 帧格式: `0xAA` | 方向码 | `0xBB`
 
-## 快速开始
-
-### 烧录
+## 5 分钟上手（从零开始）
 
 ```powershell
-python -m platformio run --project-dir=D:\Dev\arm-ble --target upload
+# 1. 装 PlatformIO（仅第一次需要，需 Python 3.x）
+pip install platformio
+
+# 2. 克隆代码
+git clone https://github.com/suancaiyu10108899/arm-ble-firmware.git
+cd arm-ble-firmware
+
+# 3. 插 MicroUSB 连板子，烧录（首次会自动下载依赖，约 2 分钟）
+python -m platformio run --target upload
+
+# 4. 硬件接线：D0(P0.25) → GX12 公头 → ③号板 RX
+#                GND       → GX12 公头 → ③号板 GND
+
+# 5. 上电验证：
+#    - D4 蓝灯亮 = BLE 已连接手柄
+#    - 按手柄 A/B/C/D → D3 红灯闪 = 发出 UART 帧
+#    - 示波器接 D0：3 字节脉冲 0xAA / dir / 0xBB
 ```
 
-烧录失败时按两下板子 Reset 按钮进入 Bootloader 模式重试。
+> ⚠️ 烧录失败时按两下板子 Reset 按钮进入 Bootloader 模式重试。
 
-### 串口监视
+### 串口监视（非必须，调试用）
 
 ```powershell
 python -m platformio device monitor --project-dir=D:\Dev\arm-ble --baud 115200
