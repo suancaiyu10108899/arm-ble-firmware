@@ -3,20 +3,21 @@
 > 项目: 假肢机械臂 — Arduino 蓝牙板（板①）
 > 板子: Adafruit Feather nRF52840 Express
 > SDK: PlatformIO + Arduino framework
-> 固件版本: v2.8（2026-06-15）
+> 固件版本: v2.9-final (2026-06-18)
 
 ## 功能
 
-- **BLE Central** 扫描并连接 VR LOOKBON 手柄（MAC: `0D:CE:99:03:5D:D2`）
+- **BLE Central** 扫描并连接 VR LOOKBON 手柄
 - 接收手柄按键 Notify 数据，解析为 `BTN/X/Y`
-- 通过 Serial1 UART TX（A2=P0.30, 115200 baud）发出 3 字节帧到③号板
+- 通过 Serial1 UART TX（**D0=P0.25**, 115200 baud, 高驱动）发出 3 字节帧到③号板
+- 帧格式: `0xAA` | 方向码 | `0xBB`
 
 ## 快速开始
 
 ### 烧录
 
 ```powershell
-python -m platformio run --project-dir=d:\Dev\arm-ble --target upload
+python -m platformio run --project-dir=D:\Dev\arm-ble --target upload
 ```
 
 烧录失败时按两下板子 Reset 按钮进入 Bootloader 模式重试。
@@ -24,7 +25,7 @@ python -m platformio run --project-dir=d:\Dev\arm-ble --target upload
 ### 串口监视
 
 ```powershell
-python -m platformio device monitor --project-dir=d:\Dev\arm-ble --baud 115200
+python -m platformio device monitor --project-dir=D:\Dev\arm-ble --baud 115200
 ```
 
 ## 供电方式
@@ -40,10 +41,10 @@ python -m platformio device monitor --project-dir=d:\Dev\arm-ble --baud 115200
 ## 预期运行效果
 
 ```
-=== ARM-BLE v2.8 (UART TX on A2, 0xAA/0xBB framed) ===
-[UART] Serial1 @ 115200 baud (TX=A2=P0.30, RX=D1=P0.24)
-[UART] A2 -> GX12 -> ③号板 RX, 帧格式: 0xAA/dir/0xBB
-[OK] v2.8 ready
+=== ARM-BLE v2.9 (TX=D0/P0.25, 0xAA/0xBB framed) ===
+[UART] Serial1 @ 115200 baud (TX=D0=P0.25 — default, A2 damaged)
+[UART] TX -> GX12 -> 3号板 RX, 帧格式: 0xAA/dir/0xBB
+[OK] v2.9 ready
 [FOUND] LOOKBON 0D:CE:99:03:5D:D2
 [CONNECT] conn=0
 [OK] subscribed
@@ -51,6 +52,27 @@ python -m platformio device monitor --project-dir=d:\Dev\arm-ble --baud 115200
 [UART] sent 3 bytes: AA 01 BB              ← A键→方向1
 [.] conn=YES                                 ← 心跳，连接保持
 ```
+
+## D0 TX 物理层验证 (2026-06-18)
+
+| 测试 | 方法 | 结果 |
+|:---:|------|:--:|
+| 双引脚交替 (D0 + A4) | 寄存器直驱, 示波器 | ✅ D0 有规律 UART 方波 |
+| 纯 TX (D0 only) | Serial1, 示波器 | ✅ 二进制序列 `0 01010101 1` = 0xAA |
+| v2.9 全链路 | BLE + Serial1 + 示波器 | ✅ 0xAA dir BB 帧完整 |
+| 空闲电平 | 万用表 DC (高驱动后) | ✅ 3.06V (>2.31V VIH) |
+
+### 引脚最终分配
+
+| 引脚 | 丝印 | 功能 | 状态 |
+|:--:|:--:|------|:--:|
+| **P0.25** | **D0** | **UART TX → GX12 → ③号板** | ✅ 示波器验证 |
+| P0.30 | A2 | 原 UART TX | ❌ 5V 永久损坏 |
+| P0.24 | RX/D1 | Serial1 RX (不读取) | ❌ 5V 输入管击穿 |
+| P0.04 | A4 | Bluefruit LED_CONN | ⚠️ 被库占用 |
+| P0.05 | A5 | 备用 | ❌ 5V 输入管击穿 |
+| P1.15 | D3 | 红色 LED — UART TX 指示 | ✅ |
+| P1.10 | D4 | Bluefruit LED_CONN (蓝) | ✅ |
 
 ## BLE 调试历程（关键发现）
 
@@ -61,6 +83,25 @@ python -m platformio device monitor --project-dir=d:\Dev\arm-ble --baud 115200
 | v2.0-v2.3 | onConnect 中 `delay(2000)` 阻塞 SoftDevice 中断 | 将 CCCD 写入移到 loop 中温和执行 |
 | v2.5-v2.6 | 解析器误判 LOOKBON 为 ASCII 协议 | 发现是单字节编码（高 nibble=事件，低 nibble=按键） |
 | v2.7 | `while (!Serial)` 死等导致电池供电时灭灯 | 改为 3 秒超时 |
+| **v2.8** | **A2 TX 物理层无声** | **9 轮示波器调试 → A2 被 5V 损坏 → 切到 D0 + 高驱动 → 打通** |
+
+## UART TX 物理层突破全过程 (2026-06-18)
+
+```
+7 轮失败 (6/17): Serial1/A2×3 + UARTE0/A2×1 + UARTE1/A2×1 + UARTE0/GPIO×2
+    ↓
+发现 A2 误焊到 5V 引脚 → 硬件损伤
+    ↓
+双引脚交替测试: D0(P0.25) + A4(P0.04) 寄存器直驱 → D0 有波形! ✅
+    ↓
+纯 TX 固件: Serial1 D0 → 示波器二进制序列 0xAA 正确 ✅
+    ↓
+回环验证 (D0 ┄ A4/D1/A5): 全部失败 → GPIO 输入管全部击穿
+    ↓
+v2.9 final: Serial1 D0 + 高驱动 (3.06V) → 全链路打通 ✅
+    ↓
+板1 报废: 12V 带电焊接灌入 VDD 轨 → 3V/GND 短路
+```
 
 ## LOOKBON 协议（单字节编码）
 
@@ -72,7 +113,7 @@ python -m platformio device monitor --project-dir=d:\Dev\arm-ble --baud 115200
 | `0xD0` | 摇杆中位 |
 | `0xD1`-`0xD8` | 摇杆 8 方向 |
 
-## UART 帧格式（v2.8 — 学长协议）
+## UART 帧格式（学长协议）
 
 | byte[0] | byte[1] | byte[2] |
 |---------|---------|---------|
@@ -84,12 +125,12 @@ python -m platformio device monitor --project-dir=d:\Dev\arm-ble --baud 115200
 - `0x03` = C键 → 舵机2 正转
 - `0x04` = D键 → 舵机2 反转
 
-> 无按键时不发帧。引脚 A2(P0.30) → GX12 航空接头 → ③号板 RX。波特率 115200。
+> 无按键时不发帧。引脚 D0(P0.25) → GX12 航空接头 → ③号板 RX。波特率 115200。
 
 ## 硬件接线
 
 ```
-A2 (P0.30) ──飞线──▶ GX12 公头 ──▶ ③号板 RX
+D0 (P0.25) ──飞线──▶ GX12 公头 ──▶ ③号板 RX
 GND        ─────────▶ GX12 公头 ──▶ ③号板 GND
 ```
 
@@ -97,20 +138,66 @@ GND        ─────────▶ GX12 公头 ──▶ ③号板 GND
 
 | 文件 | 内容 |
 |------|------|
-| `src/main.cpp` | v2.8 固件 — 扫描/连接/CCCD/解析/UART TX (0xAA帧) |
+| `src/main.cpp` | **v2.9 final** — 扫描/连接/CCCD/解析/UART TX(D0, 0xAA帧, 高驱动) |
 | `src/handle_parser.h/cpp` | LOOKBON + CodexPad 协议解析器 |
 | `src/arm_ble.ino` | Arduino IDE 入口文件 |
+| `platformio.ini` | PlatformIO 配置 (含 NeoPixel 依赖) |
 | `docs/devlog/` | 开发日志 |
+| `docs/debug-log/` | 调试记录 |
 | `docs/开发环境搭建指南.md` | Python/PlatformIO 安装与使用 |
 | `docs/交接文档_20260613.md` | 给学长的板子信息/协议/待确认清单 |
 
-## 验证过的硬件
+### 备份
 
-- MAC: `D3:52:88:3A:06:27`（板子）/ `0D:CE:99:03:5D:D2`（手柄）
-- 板子 BLE 通信 ✅
-- 手柄扫描 + 连接 + Notify 数据接收 ✅
-- UART TX (A2, 115200, 0xAA帧) ✅ 编译通过，待接③号板实测
+| 文件 | 说明 |
+|------|------|
+| `docs/main_v2.9_final.cpp` | 最终生产固件 |
+| `docs/main_v2.9_prod_backup.cpp` | v2.9 第二备份 |
+| `docs/main_20260618_uart_test_backup.cpp` | 双引脚交替 TX 测试 |
+
+## 硬件事故记录
+
+| # | 日期 | 事故 | 后果 | 教训 |
+|:--:|------|------|------|------|
+| 1 | 6/17 | TX(A2) 误焊到③号板 5V | A2 损坏 | 焊接后万用表验连通 |
+| 2 | 6/17 | 5V 倒灌 VDD 轨 | 输入管全部击穿 | GPIO 输入端对过压敏感 |
+| 3 | 6/18 | 12V 带电焊接灌入 | 板子报废 | 焊接必须断电 |
+
+## 已验证的硬件
+
+- 板子 MAC: `D3:52:88:3A:06:27` / 手柄 MAC: `0D:CE:99:03:5D:D2`
+- BLE 扫描 + 连接 + Notify 数据接收 ✅
+- LOOKBON 协议解析 (BTN/X/Y) ✅
+- **UART TX (D0, 115200, 0xAA帧) — 示波器验证通过** ✅
 - 电池供电自动启动 ✅
+- D0 高驱动空闲电平 3.06V ✅
+
+## ⚡ ESP32 替补方案
+
+nRF52840 板1 已报废(12V 事故)。已有 **ESP32 v6-final 替补方案** 完成验证：
+
+| 项目 | nRF52840 | ESP32 |
+|------|:---:|:---:|
+| BLE → UART | ✅ v2.9 | ✅ v6-final |
+| TX 引脚 | D0(P0.25) | D17(GPIO17) |
+| 项目路径 | `D:\Dev\arm-ble\` | `D:\Dev\arm-ble-esp32\` |
+| README | 本文件 | `../arm-ble-esp32/README.md` |
+
+> ESP32 方案已通过全链路验证（扫描→连接→GATT→Notify→UART TX 示波器），可直接用于③号板联调。
+
+---
+
+## 换新板后的操作
+
+```
+1. 插 MicroUSB
+2. python -m platformio run --project-dir=D:\Dev\arm-ble --target upload
+3. 飞线: D0 → GX12 → ③号板 RX
+4. 上电, D4 蓝灯亮 = BLE 连接 OK
+5. 按手柄 A/B/C/D → D3 红灯闪 + D0 示波器 0xAA dir BB
+```
+
+无需改任何代码。
 
 ## 相关文档
 
@@ -118,4 +205,5 @@ GND        ─────────▶ GX12 公头 ──▶ ③号板 GND
 |------|------|
 | 交接文档 | `docs/交接文档_20260613.md` |
 | 开发环境搭建 | `docs/开发环境搭建指南.md` |
-| 开发日志 | `docs/devlog/2026-06-13_手柄调试图鉴.md` |
+| UART TX 调试全记录 | `docs/debug-log/2026-06-17_UART_TX调试全记录.md` |
+| AI 记忆管理 | `d:\假肢机械臂\09_项目管理\AI_MEMORY.md` |

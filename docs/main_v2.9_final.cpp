@@ -158,7 +158,6 @@ void setup()
     // ── UART: 使用 Serial1 默认引脚: TX=D0(P0.25), RX=D1(P0.24) ──
     // A2(P0.30) 已被 5V 损坏, D0 示波器确认波形正常
     Serial1.begin(kUartBaud);
-    NRF_P0->PIN_CNF[25] |= (3 << 8);  // P0.25 高驱动 H0H1 (~5mA)
     Serial.print("[UART] Serial1 @ "); Serial.print(kUartBaud);
     Serial.println(" baud (TX=D0=P0.25 — default, A2 damaged)");
     Serial.println("[UART] TX -> GX12 -> 3号板 RX, 帧格式: 0xAA/dir/0xBB");
