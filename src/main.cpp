@@ -1,7 +1,7 @@
 /**
- * ARM-BLE v2.9 — TX=D0(P0.25), 0xAA/0xBB framed
+ * ARM-BLE v2.10 — TX=D0(P0.25), 0xAA/0xBB framed, 长按区分
  *
- * v2.8 → v2.9 变更: TX 从 A2(P0.30) 改为 D0(P0.25) — A2 被 5V 损坏
+ * v2.9 → v2.10 变更: 长按发送 0x05-0x08, 单击保持 0x01-0x04
  *
  * 状态机速览：
  *   扫描(10s窗口) → 扫到LOOKBON → CONNECTED
@@ -81,10 +81,15 @@ static void writeOneCCCD(uint16_t conn, uint16_t cccdHandle)
 static void sendUartFrame(const ParsedInput& in)
 {
     uint8_t dir = 0;
-    if (in.buttons & 0x40)      dir = 0x01;
-    else if (in.buttons & 0x80) dir = 0x02;
-    else if (in.buttons & 0x10) dir = 0x03;
-    else if (in.buttons & 0x20) dir = 0x04;
+    // 单击: 0x01-0x04, 长按: 0x05-0x08 (bits 偏移+8)
+    if      (in.buttons & 0x40)   dir = 0x01;  // A 单击 (bit6)
+    else if (in.buttons & 0x80)   dir = 0x02;  // B 单击 (bit7)
+    else if (in.buttons & 0x10)   dir = 0x03;  // C 单击 (bit4)
+    else if (in.buttons & 0x20)   dir = 0x04;  // D 单击 (bit5)
+    else if (in.buttons & 0x4000) dir = 0x05;  // A 长按 (bit14)
+    else if (in.buttons & 0x8000) dir = 0x06;  // B 长按 (bit15)
+    else if (in.buttons & 0x1000) dir = 0x07;  // C 长按 (bit12)
+    else if (in.buttons & 0x2000) dir = 0x08;  // D 长按 (bit13)
 
     if (dir) {
         uint8_t frame[3] = {0xAA, dir, 0xBB};
@@ -150,7 +155,7 @@ void setup()
     Serial.begin(115200);
     unsigned long usbTimeout = millis() + 3000;
     while (!Serial && millis() < usbTimeout) delay(10);
-    Serial.println("\n=== ARM-BLE v2.9 (TX=D0/P0.25, 0xAA/0xBB framed) ===");
+    Serial.println("\n=== ARM-BLE v2.10 (TX=D0/P0.25, 长按0x05-0x08) ===");
 
     pinMode(kLedRed, OUTPUT);
     digitalWrite(kLedRed, LOW);
@@ -177,7 +182,7 @@ void setup()
 
     g_lastLog     = millis();
     g_lastRestart = millis();
-    Serial.println("[OK] v2.9 ready (TX=D0)");
+    Serial.println("[OK] v2.10 ready (TX=D0)");
 }
 
 void loop()

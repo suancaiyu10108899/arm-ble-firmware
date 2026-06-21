@@ -57,14 +57,20 @@ ParsedInput parseLookbon(const uint8_t* data, size_t len)
         case 0x8: in.joystickX = 255; in.joystickY = 255; break;
         default: break;
         }
-    } else if (event == 0xA || event == 0xB) {
-        // 按键按下或长按
+    } else if (event == 0xA) {
+        // 单击 (0xA)
         // key: 1=@, 2=A, 3=B, 4=C, 5=D, 6=R, 7=L
         // lookupMap: key → bit position in ParsedInput::buttons
         // key 1=@→bit16, 2=A→bit6, 3=B→bit7, 4=C→bit4, 5=D→bit5, 6=R→bit11, 7=L→bit10
         static const uint8_t lookupMap[] = {16, 16, 6, 7, 4, 5, 11, 10};
         if (key >= 1 && key <= 7) {
             in.buttons = (uint32_t)1 << lookupMap[key];
+        }
+    } else if (event == 0xB) {
+        // 长按 (0xB) — 偏移 8 位，映射到方向码 0x05-0x08
+        static const uint8_t lookupMap[] = {16, 16, 6, 7, 4, 5, 11, 10};
+        if (key >= 1 && key <= 7) {
+            in.buttons = (uint32_t)1 << (lookupMap[key] + 8);
         }
     }
     // event == 0xC: 释放，buttons 保持 0
