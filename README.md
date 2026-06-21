@@ -14,6 +14,8 @@
 
 ## 5 分钟上手（从零开始）
 
+### 方式一：PlatformIO（推荐）
+
 ```powershell
 # 1. 装 PlatformIO（仅第一次需要，需 Python 3.x）
 pip install platformio
@@ -35,6 +37,24 @@ python -m platformio run --target upload
 ```
 
 > ⚠️ 烧录失败时按两下板子 Reset 按钮进入 Bootloader 模式重试。
+
+### 方式二：Arduino IDE（备选）
+
+```
+1. 安装板子包：Arduino IDE → 文件 → 首选项 → 附加开发板管理器网址
+   添加: https://adafruit.github.io/arduino-board-index/package_adafruit_index.json
+   → 开发板管理器搜索 "Adafruit nRF52" → 安装
+
+2. 安装库：库管理器搜索 "Adafruit Bluefruit nRF52 Libraries" → 安装
+
+3. 克隆代码后，用 Arduino IDE 打开 src/arm_ble.ino
+
+4. 选择开发板: Adafruit Feather nRF52840 Express
+
+5. 编译上传
+```
+
+> PlatformIO 方式零配置（无需手动装板子包和库），优先推荐。Arduino IDE 适合不熟悉命令行的同学。
 
 ### 串口监视（非必须，调试用）
 
